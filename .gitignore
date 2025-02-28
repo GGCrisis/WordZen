@@ -1,0 +1,18 @@
+# typical gitignore for web apps
+node_modules
+dist
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+
+# Firebase credentials
+**/firebase-credentials.json
+**/serviceAccount.json
+**/firebase-adminsdk*.json
