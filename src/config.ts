@@ -1,5 +1,5 @@
 // API Configuration
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 export const API_ENDPOINTS = {
   // Language endpoints
@@ -33,25 +33,15 @@ export const API_ENDPOINTS = {
 };
 
 // Game Configuration
-export const GAME_CONFIG = {
-  speedGame: {
-    duration: 120, // seconds
-    wordsPerRound: 5,
-    pointsPerCorrect: 10,
-  },
-  multipleChoice: {
-    duration: 120, // seconds
-    pointsPerCorrect: 10,
-    choices: 4,
-  },
-  pronunciation: {
-    attemptsPerWord: 3,
-    recordingDuration: 5, // seconds
-  },
-  wordScramble: {
-    pointsPerCorrect: 15,
-    streakBonus: 5,
-  },
+type GameConfig = {
+  duration: number;
+  pointsPerCorrect: number;
+};
+
+export const GAME_CONFIG: Record<'speedGame' | 'multipleChoice' | 'wordScramble', GameConfig> = {
+  speedGame: { duration: 120, pointsPerCorrect: 10 },
+  multipleChoice: { duration: 120, pointsPerCorrect: 10 },
+  wordScramble: { duration: 0, pointsPerCorrect: 15 },
 };
 
 // Supported Languages
@@ -83,6 +73,8 @@ export const ERROR_MESSAGES = {
   unauthorized: 'Please sign in to continue.',
 };
 
+export const getErrorMessage = (key: keyof typeof ERROR_MESSAGES) => ERROR_MESSAGES[key];
+
 // Success Messages
 export const SUCCESS_MESSAGES = {
   pronunciationCorrect: 'Excellent pronunciation! 🎉',
@@ -107,16 +99,24 @@ export const FEATURES = {
 };
 
 // API Types
-export type ApiHeaders = Record<string, string>;
+export type ApiHeaders = {
+  'Content-Type': 'application/json';
+  Authorization?: string;
+};
 
 // API Request Configuration
 export const API_CONFIG = {
   timeout: 5000,
   retryCount: 3,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   } satisfies ApiHeaders,
 };
+
+export const getApiHeaders = (token?: string): ApiHeaders => ({
+  'Content-Type': 'application/json',
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+});
 
 // Export all configurations
 export default {
@@ -126,8 +126,10 @@ export default {
   ANIMATIONS,
   STORAGE_KEYS,
   ERROR_MESSAGES,
+  getErrorMessage,
   SUCCESS_MESSAGES,
   DEFAULTS,
   FEATURES,
   API_CONFIG,
+  getApiHeaders,
 };
