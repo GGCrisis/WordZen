@@ -1,4 +1,4 @@
-import { API_CONFIG, ERROR_MESSAGES, STORAGE_KEYS } from './config';
+import { GAME_CONFIG } from './config';
 import type { Language } from './config';
 import { auth } from './config/firebase';
 
