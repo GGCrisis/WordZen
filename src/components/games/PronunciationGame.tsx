@@ -33,6 +33,7 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
 
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
+  const maxAttempts = GAME_CONFIG.pronunciation.attemptsPerWord;
 
   const fetchNewWord = async () => {
     setLoading(true);
@@ -40,14 +41,10 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
       const data = await apiRequest<WordData>(API_ENDPOINTS.wordOfDay.get(language));
       setCurrentWord(data);
       setAttempts(0);
-      setFeedback({
-        message: 'Click the microphone to start recording'
-      });
+      setFeedback({ message: 'Click the microphone to start recording' });
       setFeedbackType('info');
     } catch (error) {
-      setFeedback({
-        message: handleError(error)
-      });
+      setFeedback({ message: handleError(error) });
       setFeedbackType('error');
     } finally {
       setLoading(false);
@@ -60,21 +57,14 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 44100,
-          echoCancellation: true,
-          noiseSuppression: true,
-        }
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm')
         ? 'audio/webm'
         : 'audio/ogg';
 
       const recorder = new MediaRecorder(stream, {
-        mimeType: `${mimeType};codecs=opus`
+        mimeType: `${mimeType};codecs=opus`,
       });
 
       audioChunks.current = [];
@@ -88,7 +78,7 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
       recorder.onstop = async () => {
         const audioBlob = new Blob(audioChunks.current, { type: mimeType });
         await submitPronunciation(audioBlob);
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorder.current = recorder;
@@ -132,21 +122,21 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
         },
       });
 
-      setAttempts(prev => prev + 1);
+      setAttempts((prev) => prev + 1);
 
       if (response.correct) {
         setFeedback({
           message: response.feedback,
-          recognizedText: response.recognized_text || undefined
+          recognizedText: response.recognized_text || undefined,
         });
         setFeedbackType('success');
         setTimeout(fetchNewWord, 2500);
       } else {
-        if (attempts + 1 >= GAME_CONFIG.pronunciation.attemptsPerWord) {
+        if (attempts + 1 >= maxAttempts) {
           setFeedback({
             message: response.feedback,
             recognizedText: response.recognized_text || undefined,
-            additionalInfo: 'Moving to next word...'
+            additionalInfo: 'Moving to next word...',
           });
           setFeedbackType('error');
           setTimeout(fetchNewWord, 3000);
@@ -154,7 +144,7 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
           setFeedback({
             message: response.feedback,
             recognizedText: response.recognized_text || undefined,
-            additionalInfo: `Attempts remaining: ${GAME_CONFIG.pronunciation.attemptsPerWord - (attempts + 1)}`
+            additionalInfo: `Attempts remaining: ${maxAttempts - (attempts + 1)}`,
           });
           setFeedbackType('error');
         }
@@ -208,9 +198,7 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
                     : 'bg-blue-500 hover:bg-blue-600'
                 }`}
               >
-                <span className="text-3xl text-white">
-                  {isRecording ? '⬛' : '🎤'}
-                </span>
+                <span className="text-3xl text-white">{isRecording ? '⬛' : '🎤'}</span>
               </button>
 
               {feedback && (
@@ -228,7 +216,7 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
               )}
 
               <div className="flex justify-center space-x-2">
-                {Array.from({ length: GAME_CONFIG.pronunciation.attemptsPerWord }).map((_, index) => (
+                {Array.from({ length: maxAttempts }).map((_, index) => (
                   <div
                     key={index}
                     className={`w-3 h-3 rounded-full ${
@@ -259,13 +247,11 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
           <li>Clearly pronounce the displayed word</li>
           <li>Click again to stop recording (or wait for auto-stop)</li>
           <li>Receive feedback on your pronunciation</li>
-          <li>You have {GAME_CONFIG.pronunciation.attemptsPerWord} attempts per word</li>
+          <li>You have {maxAttempts} attempts per word</li>
         </ul>
       </div>
     </div>
   );
 };
-
-// No changes needed below, just ensure you are NOT using any custom Record<> type for GAME_CONFIG
 
 export default PronunciationGame;
