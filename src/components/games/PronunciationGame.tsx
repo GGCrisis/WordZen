@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { API_ENDPOINTS, GAME_CONFIG } from '../../config';
-import { apiRequest, handleError } from '../../utils';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
+import { API_ENDPOINTS, GAME_CONFIG, ERROR_MESSAGES } from '../../config';
+import { apiRequest, audioUtils, handleError } from '../../utils';
 
 interface PronunciationGameProps {
   language: string;
@@ -11,239 +11,180 @@ interface WordData {
   meaning: string;
 }
 
-// Web Speech API types
-interface SpeechRecognitionResult {
-  readonly isFinal: boolean;
-  readonly [index: number]: SpeechRecognitionAlternative;
-  length: number;
+interface PronunciationResponse {
+  correct: boolean;
+  feedback: string;
+  recognized_text: string | null;
 }
 
-interface SpeechRecognitionAlternative {
-  readonly transcript: string;
-  readonly confidence: number;
-}
-
-interface SpeechRecognitionResultList {
-  readonly [index: number]: SpeechRecognitionResult;
-  length: number;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  readonly results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
+interface FeedbackContent {
   message: string;
-}
-
-interface ISpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
-  onend: () => void;
-  onstart: () => void;
-  onresult: (event: SpeechRecognitionEvent) => void;
-}
-
-// Define the constructor
-interface ISpeechRecognitionConstructor {
-  new (): ISpeechRecognition;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: ISpeechRecognitionConstructor;
-    webkitSpeechRecognition?: ISpeechRecognitionConstructor;
-  }
+  recognizedText?: string;
+  additionalInfo?: string;
 }
 
 const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
   const [currentWord, setCurrentWord] = useState<WordData | null>(null);
-  const [isListening, setIsListening] = useState(false);
-  const [feedback, setFeedback] = useState<string>('Click the microphone to start');
-  const [score, setScore] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackContent | null>(null);
+  const [feedbackType, setFeedbackType] = useState<'success' | 'error' | 'info'>('info');
+  const [attempts, setAttempts] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Language code mapping
-  const getLanguageCode = (lang: string): string => {
-    const languageCodes: { [key: string]: string } = {
-      english: 'en-US',
-      telugu: 'te-IN',
-      kannada: 'kn-IN',
-      sanskrit: 'sa-IN'
-    };
-    return languageCodes[lang] || 'en-US';
-  };
-
-  const recognition = useRef<ISpeechRecognition | null>(null);
-  const synthesis = useRef<SpeechSynthesis>(window.speechSynthesis);
-
-  useEffect(() => {
-    // Initialize speech recognition
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (SpeechRecognition) {
-      recognition.current = new SpeechRecognition();
-      recognition.current.continuous = true;
-      recognition.current.interimResults = true;
-      recognition.current.lang = getLanguageCode(language);
-
-      recognition.current.onresult = (event: SpeechRecognitionEvent) => {
-        const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase();
-        const confidence = event.results[event.results.length - 1][0].confidence;
-        
-        if (event.results[event.results.length - 1].isFinal) {
-          checkPronunciation(transcript, confidence);
-          recognition.current?.stop();
-        } else {
-          setFeedback('Listening...');
-        }
-      };
-
-      recognition.current.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error('Speech recognition error:', event.error);
-        setFeedback(`Error: ${event.error}. Please try again.`);
-        setIsListening(false);
-      };
-
-      recognition.current.onstart = () => {
-        setFeedback('Listening... Speak now!');
-        setIsListening(true);
-      };
-
-      recognition.current.onend = () => {
-        setIsListening(false);
-        if (!currentWord) return;
-        
-        // If we haven't received a result yet, prompt the user to try again
-        if (feedback === 'Listening... Speak now!') {
-          setFeedback('No speech detected. Please try again.');
-        }
-      };
-    } else {
-      setFeedback('Speech recognition is not supported in this browser.');
-    }
-
-    return () => {
-      if (recognition.current) {
-        recognition.current.abort();
-      }
-      synthesis.current.cancel();
-    };
-  }, [language]);
-
-  useEffect(() => {
-    fetchNewWord();
-  }, [language]);
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
 
   const fetchNewWord = async () => {
     setLoading(true);
     try {
       const data = await apiRequest<WordData>(API_ENDPOINTS.wordOfDay.get(language));
       setCurrentWord(data);
-      setFeedback('Click the microphone to start speaking');
+      setAttempts(0);
+      setFeedback({
+        message: 'Click the microphone to start recording'
+      });
+      setFeedbackType('info');
     } catch (error) {
-      setFeedback(handleError(error));
+      setFeedback({
+        message: handleError(error)
+      });
+      setFeedbackType('error');
     } finally {
       setLoading(false);
     }
   };
 
-  const speakWord = () => {
-    if (!currentWord) return;
+  useEffect(() => {
+    fetchNewWord();
+  }, [language]);
 
-    const utterance = new SpeechSynthesisUtterance(currentWord.word);
-    utterance.lang = getLanguageCode(language);
-    synthesis.current.speak(utterance);
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 44100,
+          echoCancellation: true,
+          noiseSuppression: true,
+        }
+      });
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/ogg';
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: `${mimeType};codecs=opus`
+      });
+
+      audioChunks.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks.current, { type: mimeType });
+        await submitPronunciation(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.current = recorder;
+      recorder.start(100);
+      setIsRecording(true);
+      setFeedback({ message: 'Recording... Speak now' });
+      setFeedbackType('info');
+
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          stopRecording();
+        }
+      }, GAME_CONFIG.pronunciation.recordingDuration * 1000);
+    } catch (error) {
+      setFeedback({ message: ERROR_MESSAGES.audioError });
+      setFeedbackType('error');
+    }
   };
 
-  const toggleListening = () => {
-    if (!recognition.current) {
-      setFeedback('Speech recognition is not supported in your browser');
-      return;
+  const stopRecording = () => {
+    if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
+      mediaRecorder.current.stop();
+      setIsRecording(false);
+      setFeedback({ message: 'Processing...' });
+      setFeedbackType('info');
     }
+  };
+
+  const submitPronunciation = async (audioBlob: Blob) => {
+    if (!currentWord) return;
 
     try {
-      if (isListening) {
-        recognition.current.stop();
+      const audioData = await audioUtils.createAudioBlob(audioBlob);
+
+      const response = await apiRequest<PronunciationResponse>(API_ENDPOINTS.pronunciation.check, {
+        method: 'POST',
+        body: {
+          audio: audioData,
+          word: currentWord.word,
+          language,
+        },
+      });
+
+      setAttempts(prev => prev + 1);
+
+      if (response.correct) {
+        setFeedback({
+          message: response.feedback,
+          recognizedText: response.recognized_text || undefined
+        });
+        setFeedbackType('success');
+        setTimeout(fetchNewWord, 2500);
       } else {
-        // Reset feedback before starting
-        setFeedback('Starting...');
-        recognition.current.start();
+        if (attempts + 1 >= GAME_CONFIG.pronunciation.attemptsPerWord) {
+          setFeedback({
+            message: response.feedback,
+            recognizedText: response.recognized_text || undefined,
+            additionalInfo: 'Moving to next word...'
+          });
+          setFeedbackType('error');
+          setTimeout(fetchNewWord, 3000);
+        } else {
+          setFeedback({
+            message: response.feedback,
+            recognizedText: response.recognized_text || undefined,
+            additionalInfo: `Attempts remaining: ${GAME_CONFIG.pronunciation.attemptsPerWord - (attempts + 1)}`
+          });
+          setFeedbackType('error');
+        }
       }
     } catch (error) {
-      console.error('Speech recognition error:', error);
-      setFeedback('Error starting speech recognition. Please try again.');
-      setIsListening(false);
+      setFeedback({ message: handleError(error) });
+      setFeedbackType('error');
     }
   };
 
-  const checkPronunciation = (transcript: string, confidence: number) => {
-    if (!currentWord) return;
-
-    const word = currentWord.word.toLowerCase();
-    const similarity = calculateSimilarity(word, transcript);
-    const confidenceScore = confidence * 100;
-    
-    // For non-English languages, be more lenient with the similarity threshold
-    const isNonEnglish = language !== 'english';
-    const similarityThreshold = isNonEnglish ? 0.2 : 0.3; // Very lenient threshold
-    
-    console.log('Pronunciation check:', {
-      said: transcript,
-      expected: word,
-      similarity,
-      threshold: similarityThreshold,
-      language,
-      confidence: confidenceScore
-    });
-    
-    if (similarity >= similarityThreshold) {
-      setScore(prev => prev + 1);
-      setFeedback(`Good! Moving to next word...`);
-      fetchNewWord();
-    } else {
-      setFeedback(
-        `Try again! You said "${transcript}". Click 🔊 to hear "${word}".`
-      );
-    }
-  };
-
-  const calculateSimilarity = (str1: string, str2: string): number => {
-    const len1 = str1.length;
-    const len2 = str2.length;
-    const matrix: number[][] = Array(len1 + 1).fill(null).map(() => Array(len2 + 1).fill(0));
-
-    for (let i = 0; i <= len1; i++) matrix[i][0] = i;
-    for (let j = 0; j <= len2; j++) matrix[0][j] = j;
-
-    for (let i = 1; i <= len1; i++) {
-      for (let j = 1; j <= len2; j++) {
-        const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j - 1] + cost
-        );
-      }
-    }
-
-    const maxLen = Math.max(len1, len2);
-    return (maxLen - matrix[len1][len2]) / maxLen;
-  };
+  const renderFeedback = (content: FeedbackContent): ReactNode => (
+    <div>
+      <p className="mb-2">{content.message}</p>
+      {content.recognizedText && (
+        <p className={`text-sm ${feedbackType === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+          Recognized: "{content.recognizedText}"
+        </p>
+      )}
+      {content.additionalInfo && (
+        <p className="mt-2 font-medium">{content.additionalInfo}</p>
+      )}
+    </div>
+  );
 
   return (
     <div className="max-w-2xl mx-auto p-4">
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         <div className="bg-blue-600 text-white p-6">
-          <h2 className="text-2xl font-bold mb-2">AI Pronunciation Trainer</h2>
-          <p className="opacity-90">Perfect your pronunciation with real-time AI feedback</p>
-          <div className="mt-2 text-xl">Score: {score}</div>
+          <h2 className="text-2xl font-bold mb-2">Pronunciation Practice</h2>
+          <p className="opacity-90">Perfect your pronunciation skills</p>
         </div>
 
         {loading ? (
@@ -258,30 +199,43 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
             </div>
 
             <div className="flex flex-col items-center space-y-6">
-              <div className="flex space-x-4">
-                <button
-                  onClick={speakWord}
-                  className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-all"
-                >
-                  <span className="text-2xl text-white">🔊</span>
-                </button>
+              <button
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={loading}
+                className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${
+                  isRecording
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-blue-500 hover:bg-blue-600'
+                }`}
+              >
+                <span className="text-3xl text-white">
+                  {isRecording ? '⬛' : '🎤'}
+                </span>
+              </button>
 
-                <button
-                  onClick={toggleListening}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
-                    isListening
-                      ? 'bg-red-500 hover:bg-red-600'
-                      : 'bg-blue-500 hover:bg-blue-600'
+              {feedback && (
+                <div
+                  className={`p-4 rounded-lg text-center w-full ${
+                    feedbackType === 'success'
+                      ? 'bg-green-100 text-green-700'
+                      : feedbackType === 'error'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-blue-100 text-blue-700'
                   }`}
                 >
-                  <span className="text-2xl text-white">
-                    {isListening ? '⬛' : '🎤'}
-                  </span>
-                </button>
-              </div>
+                  {renderFeedback(feedback)}
+                </div>
+              )}
 
-              <div className="p-4 rounded-lg bg-gray-100 text-center w-full">
-                <p className="text-gray-700">{feedback}</p>
+              <div className="flex justify-center space-x-2">
+                {Array.from({ length: GAME_CONFIG.pronunciation.attemptsPerWord }).map((_, index) => (
+                  <div
+                    key={index}
+                    className={`w-3 h-3 rounded-full ${
+                      index < attempts ? 'bg-red-500' : 'bg-gray-200'
+                    }`}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -292,10 +246,7 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
         )}
 
         <div className="bg-gray-50 px-6 py-4">
-          <button
-            onClick={fetchNewWord}
-            className="w-full btn-secondary"
-          >
+          <button onClick={fetchNewWord} className="w-full btn-secondary">
             Skip to Next Word
           </button>
         </div>
@@ -304,10 +255,11 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
       <div className="mt-6 bg-gray-100 p-4 rounded-lg">
         <h3 className="font-semibold mb-2">How to Play:</h3>
         <ul className="list-disc list-inside space-y-2 text-gray-700">
-          <li>Click the speaker icon to hear the correct pronunciation</li>
-          <li>Click the microphone button and speak the word clearly</li>
-          <li>Get real-time AI feedback on your pronunciation</li>
-          <li>Practice until you achieve a perfect score!</li>
+          <li>Click the microphone button to start recording</li>
+          <li>Clearly pronounce the displayed word</li>
+          <li>Click again to stop recording (or wait for auto-stop)</li>
+          <li>Receive feedback on your pronunciation</li>
+          <li>You have {GAME_CONFIG.pronunciation.attemptsPerWord} attempts per word</li>
         </ul>
       </div>
     </div>
