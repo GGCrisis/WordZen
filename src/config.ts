@@ -4,7 +4,7 @@ const API_BASE_URL = 'http://localhost:5000';
 export const API_ENDPOINTS = {
   // Language endpoints
   languages: `${API_BASE_URL}/api/languages`,
-  
+
   // Game endpoints
   speedGame: {
     start: (language: string) => `${API_BASE_URL}/api/speed-game/start/${language}`,
@@ -113,7 +113,7 @@ export const API_CONFIG = {
   },
 };
 
-// Add these lines just before the default export at the end:
+// GameConfig Types
 export type GameConfig = typeof GAME_CONFIG;
 export type GameConfigKey = keyof typeof GAME_CONFIG;
 
