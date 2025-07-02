@@ -266,4 +266,6 @@ const PronunciationGame: React.FC<PronunciationGameProps> = ({ language }) => {
   );
 };
 
+// No changes needed below, just ensure you are NOT using any custom Record<> type for GAME_CONFIG
+
 export default PronunciationGame;
