@@ -26,11 +26,6 @@ declare module './components/games/SpeedGame' {
   export default SpeedGame;
 }
 
-declare module './components/games/PronunciationGame' {
-  const PronunciationGame: React.ComponentType<GameProps>;
-  export default PronunciationGame;
-}
-
 declare module './components/games/FlashcardGame' {
   const FlashcardGame: React.ComponentType<GameProps>;
   export default FlashcardGame;

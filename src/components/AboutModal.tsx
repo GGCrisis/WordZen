@@ -12,7 +12,7 @@ export default function AboutModal({ isOpen, onClose }: AboutModalProps) {
         <h2 className="text-2xl font-bold mb-4">About Vocabulous</h2>
         <p className="text-gray-600 mb-4">
           Vocabulous is an interactive platform designed to make vocabulary learning fun and engaging.
-          Through various minigames like Speed Challenge, Flashcards, Pronunciation Practice, Scenario Learning,
+          Through various minigames like Speed Challenge, Flashcards, Scenario Learning,
           Word Scramble, and Word of the Day, users can enhance their vocabulary in an enjoyable way.
         </p>
         <p className="text-gray-600 mb-6">

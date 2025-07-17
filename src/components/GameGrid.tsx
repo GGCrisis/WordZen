@@ -17,13 +17,6 @@ const games: GameCardType[] = [
     path: '/flashcards'
   },
   {
-    id: '3',
-    title: 'Pronunciation',
-    description: 'Practice pronouncing words correctly',
-    icon: '🗣️',
-    path: '/pronunciation'
-  },
-  {
     id: '4',
     title: 'Scenario Learning',
     description: 'Learn words in context through scenarios',
