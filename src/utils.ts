@@ -1,4 +1,4 @@
-import { API_CONFIG, ERROR_MESSAGES, STORAGE_KEYS } from './config';
+import { API_CONFIG, ERROR_MESSAGES } from './config';
 import type { Language } from './config';
 
 // API Request Handler
